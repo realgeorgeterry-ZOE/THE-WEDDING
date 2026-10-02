@@ -1,0 +1,24 @@
+0 verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.6.2
+2 info using node@v24.12.0
+3 silly config load:file:C:\Program Files\nodejs\node_modules\npm\npmrc
+4 silly config load:file:C:\Users\HP\Desktop\Wed\THE WEDDING\.npmrc
+5 silly config load:file:C:\Users\HP\.npmrc
+6 silly config load:file:C:\Users\HP\AppData\Roaming\npm\etc\npmrc
+7 verbose title npm exec supabase --version
+8 verbose argv "exec" "--yes" "--" "supabase" "--version"
+9 verbose logfile logs-max:10 dir:C:\Users\HP\Desktop\Wed\THE WEDDING\.npm-cache\_logs\2026-10-02T17_47_57_988Z-
+10 verbose logfile C:\Users\HP\Desktop\Wed\THE WEDDING\.npm-cache\_logs\2026-10-02T17_47_57_988Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:2348810240 maxSize:587202560 maxEntrySize:293601280
+13 verbose shrinkwrap failed to load node_modules/.package-lock.json out of date, updated: node_modules
+14 http fetch GET 200 https://registry.npmjs.org/supabase 2026ms (cache updated)
+15 silly packumentCache heap:2348810240 maxSize:587202560 maxEntrySize:293601280
+16 verbose Could not read global path C:\Users\HP\AppData\Roaming\npm, ignoring
+17 silly packumentCache heap:2348810240 maxSize:587202560 maxEntrySize:293601280
+18 verbose cwd C:\Users\HP\Desktop\Wed\THE WEDDING
+19 verbose os Windows_NT 10.0.22631
+20 verbose node v24.12.0
+21 verbose npm  v11.6.2
+22 verbose exit 1
+23 verbose code 1
