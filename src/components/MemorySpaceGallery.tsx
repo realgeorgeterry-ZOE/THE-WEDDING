@@ -135,7 +135,7 @@ export default function MemorySpaceGallery({ photos, onSelect }: Props) {
   }, [photos.length, spatial]);
 
   if (!spatial) {
-    return <div className="masonry">{photos.map(photo => <button key={photo.id} onClick={() => onSelect(photo)}><img loading="lazy" src={photoUrl(photo.thumbnail_path || photo.storage_path)} alt={photo.caption || 'Wedding memory'}/>{photo.caption && <span>{photo.caption}</span>}</button>)}</div>;
+    return <div className="masonry">{photos.map(photo => <button key={photo.id} onClick={() => onSelect(photo)}><img loading="lazy" src={photoUrl(photo)} alt={photo.caption || 'Wedding memory'}/>{photo.caption && <span>{photo.caption}</span>}</button>)}</div>;
   }
 
   return <div className="memory-space-track" ref={trackRef} style={{ height: `${Math.max(1.8, photos.length * 0.82 + 0.8) * 100}vh` }}>
@@ -181,7 +181,7 @@ export default function MemorySpaceGallery({ photos, onSelect }: Props) {
               '--photo-scale': position.scale,
             } as CSSProperties}
           >
-            <img loading="lazy" src={photoUrl(photo.thumbnail_path || photo.storage_path)} alt={photo.caption || 'Wedding memory'}/>
+            <img loading="lazy" src={photoUrl(photo)} alt={photo.caption || 'Wedding memory'}/>
             {photo.caption && <span>{photo.caption}</span>}
           </button>;
         })}

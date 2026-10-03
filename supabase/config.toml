@@ -1,2 +1,5 @@
 [functions.guest-submit]
 verify_jwt = false
+
+[functions.photo-storage-admin]
+verify_jwt = true

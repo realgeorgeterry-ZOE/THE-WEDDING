@@ -46,41 +46,56 @@ export async function sendWish(id: string, name: string, message: string, visibi
   await invokeGuest(form);
 }
 
-async function compressForUpload(input: File): Promise<File> {
-  if (!['image/jpeg','image/png','image/webp'].includes(input.type)) throw new Error('Use a JPEG, PNG or WebP photo.');
-  try {
-    const bitmap = await createImageBitmap(input);
-    const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Photo compression is unavailable in this browser.');
-    ctx.drawImage(bitmap,0,0,canvas.width,canvas.height); bitmap.close();
-    let quality = 0.9, blob: Blob | null = null;
-    while (quality >= 0.65) { blob = await new Promise(resolve => canvas.toBlob(resolve,'image/webp',quality)); if (blob && blob.size <= 5*1024*1024) break; quality -= 0.08; }
-    if (!blob || blob.size > 5*1024*1024) throw new Error('This photo is too large. Choose a smaller image.');
-    return new File([blob], `wedding-memory-${crypto.randomUUID()}.webp`, { type:'image/webp', lastModified:Date.now() });
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('too large')) throw error;
-    if (input.size <= 5*1024*1024) return input;
-    throw new Error('This photo could not be compressed. Choose a smaller JPEG, PNG or WebP image.');
+async function decodePhoto(input: File): Promise<{source: CanvasImageSource;width:number;height:number;close?:()=>void}> {
+  if (typeof createImageBitmap === 'function') {
+    try { const bitmap=await createImageBitmap(input,{imageOrientation:'from-image'}); return {source:bitmap,width:bitmap.width,height:bitmap.height,close:()=>bitmap.close()}; } catch { /* Try the browser's image decoder below. */ }
   }
+  try {
+    const url=URL.createObjectURL(input); const image=new Image(); image.src=url;
+    try { await image.decode(); } finally { URL.revokeObjectURL(url); }
+    if(!image.naturalWidth||!image.naturalHeight)throw new Error();
+    return {source:image,width:image.naturalWidth,height:image.naturalHeight};
+  } catch { throw new Error('We couldn’t prepare this photo. Please try another image. HEIC/HEIF photos may need to be saved as JPEG first.'); }
 }
-export async function uploadPhotos(id: string, files: File[], name: string, caption: string, visibility: 'public' | 'private', sessionId: string, honeypot: string) {
+async function compressForUpload(input: File): Promise<File> {
+  const decoded=await decodePhoto(input);
+  try {
+    const longest=Math.max(decoded.width,decoded.height);const targetSides=[3000,2700,2400,2100,1800,1500,1200];const qualities=[0.9,0.82,0.74,0.66,0.58];
+    for(const side of targetSides){const scale=Math.min(1,side/longest);const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(decoded.width*scale));canvas.height=Math.max(1,Math.round(decoded.height*scale));const context=canvas.getContext('2d');if(!context)throw new Error('canvas');context.drawImage(decoded.source,0,0,canvas.width,canvas.height);
+      for(const quality of qualities){let blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/webp',quality));if(!blob||blob.type!=='image/webp')blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/jpeg',quality));if(!blob)continue;const mime=blob.type==='image/webp'?'image/webp':blob.type==='image/jpeg'?'image/jpeg':null;if(!mime)continue;if(blob.size<=4.75*1024*1024){const extension=mime==='image/webp'?'webp':'jpg';return new File([blob],`wedding-memory-${crypto.randomUUID()}.${extension}`,{type:mime,lastModified:Date.now()})}}
+    }
+    throw new Error('size');
+  } catch(error) {
+    if(error instanceof Error&&error.message==='size')throw new Error('We couldn’t prepare this photo small enough to upload. Please try another photo.');
+    if(error instanceof Error&&error.message.startsWith('We couldn’t'))throw error;
+    throw new Error('We couldn’t prepare this photo. Please try another image.');
+  } finally { decoded.close?.(); }
+}
+export async function uploadPhotos(id: string, files: File[], name: string, caption: string, visibility: 'public' | 'private', sessionId: string, honeypot: string, onProgress?:(stage:'preparing'|'uploading',index:number,total:number)=>void) {
   if (files.length > 5) throw new Error('Please choose no more than 5 photos at a time.');
   let shared = 0;
-  for (const original of files) {
+  for (const [index,original] of files.entries()) {
+    onProgress?.('preparing',index+1,files.length);
     const file = await compressForUpload(original);
+    if(file.size>5*1024*1024)throw new Error('We couldn’t prepare this photo small enough to upload. Please try another photo.');
     const form = new FormData();
     form.set('action','photo'); form.set('wedding_id',id); form.set('guest_name',name.trim());
     form.set('caption',caption.trim()); form.set('visibility',visibility); form.set('photo',file); honeypotFields(form,sessionId,honeypot);
-    try { await invokeGuest(form); shared++; }
+    try { onProgress?.('uploading',index+1,files.length);await invokeGuest(form); shared++; }
     catch (error) {
       if (shared) throw new Error(`${shared} photo(s) were shared; the next photo failed. ${error instanceof Error?error.message:'Please try again.'}`);
       throw error;
     }
   }
 }
-export function photoUrl(path: string) {
-  return supabase.storage.from('wedding-media').getPublicUrl(path,{transform:{width:1100,quality:78}}).data.publicUrl;
+export type PhotoLocation = { storage_path?: string; thumbnail_path?: string | null; storage_provider?: 'supabase' | 'r2'; storage_key?: string | null };
+const r2PublicBase = (import.meta.env.VITE_R2_PUBLIC_BASE_URL as string | undefined)?.replace(/\/+$/, '') || '';
+
+export function photoUrl(photo: PhotoLocation | string, thumbnail = true) {
+  if (typeof photo === 'string') return supabase.storage.from('wedding-media').getPublicUrl(photo,{transform:{width:1100,quality:78}}).data.publicUrl;
+  const path = (thumbnail ? photo.thumbnail_path || photo.storage_path : photo.storage_path) || '';
+  if (photo.storage_provider === 'r2') return r2PublicBase && photo.storage_key
+    ? `${r2PublicBase}/${photo.storage_key.split('/').map(encodeURIComponent).join('/')}`
+    : '';
+  return supabase.storage.from('wedding-media').getPublicUrl(path,{...(thumbnail ? {transform:{width:1100,quality:78}} : {})}).data.publicUrl;
 }

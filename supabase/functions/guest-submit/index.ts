@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { deleteR2Object, r2Bucket, uploadR2Object } from '../_shared/r2-storage.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -131,22 +132,43 @@ Deno.serve(async req => {
       if (caption.length > 300) return response({ error: 'Captions must be 300 characters or fewer.' }, 400);
       const bytes = new Uint8Array(await file.slice(0, 16).arrayBuffer());
       if (!validImageSignature(file.type, bytes)) return response({ error: 'This file is not a valid supported image.' }, 415);
+      const provider = Deno.env.get('PHOTO_STORAGE_PROVIDER') || 'supabase';
+      if (provider !== 'supabase' && provider !== 'r2') return response({ error: 'Photo uploads are temporarily unavailable.' }, 503);
+      const objectId = crypto.randomUUID();
+      // Preserve the established constrained storage_path formats for compatibility;
+      // storage_key records the independently generated R2 key when applicable.
       const path = visibility === 'private'
-        ? `${weddingId}/private/photos/${crypto.randomUUID()}.${ext}`
-        : `weddings/${weddingId}/photos/${crypto.randomUUID()}.${ext}`;
-      const bucket = visibility === 'private' ? 'wedding-private-media' : 'wedding-media';
-      const { error: uploadError } = await client.storage.from(bucket).upload(path, file, { contentType: file.type, cacheControl: visibility === 'private' ? '0' : undefined, upsert: false });
+        ? `${weddingId}/private/photos/${objectId}.${ext}`
+        : `weddings/${weddingId}/photos/${objectId}.${ext}`;
+      const r2Key = `weddings/${weddingId}/${visibility}/${objectId}.${ext}`;
+      let bucket: string | undefined;
+      let uploadError: unknown = null;
+      try {
+        if (provider === 'r2') {
+          bucket = r2Bucket(visibility);
+          await uploadR2Object(bucket, r2Key, new Uint8Array(await file.arrayBuffer()), file.type, visibility);
+        } else {
+          bucket = visibility === 'private' ? 'wedding-private-media' : 'wedding-media';
+          const result = await client.storage.from(bucket).upload(path, file, { contentType: file.type, cacheControl: visibility === 'private' ? '0' : undefined, upsert: false });
+          uploadError = result.error;
+        }
+      } catch (error) { uploadError = error; }
       if (uploadError) {
         console.error('photo_storage_upload_failed', { code: safeSqlState(uploadError) });
         return response({ error: 'Something went wrong while uploading your memory. Please try again.', ...(isDevelopment ? { diagnostic: 'photo_storage_upload_failed' } : {}) }, 500);
       }
-      const { error: insertError } = await client.from('photo_submissions').insert({ wedding_id: weddingId, uploader_name: guestName, storage_path: path, thumbnail_path: path, caption: caption || null, media_type: file.type, file_size: file.size, visibility });
+      const { error: insertError } = await client.from('photo_submissions').insert({ wedding_id: weddingId, uploader_name: guestName, storage_path: path, thumbnail_path: path, storage_provider: provider, storage_key: provider === 'r2' ? r2Key : null, caption: caption || null, media_type: file.type, file_size: file.size, visibility });
       if (insertError) {
         const code = safeSqlState(insertError);
         const diagnostic = photoInsertDiagnostic(code);
         console.error('photo_submission_insert_failed', { code, diagnostic });
-        const { error: cleanupError } = await client.storage.from(bucket).remove([path]);
-        if (cleanupError) console.error('Photo upload cleanup failed.', { code: cleanupError.name || 'storage_cleanup_failed' });
+        try {
+          if (provider === 'r2' && bucket) await deleteR2Object(bucket, r2Key);
+          else if (bucket) {
+            const { error: cleanupError } = await client.storage.from(bucket).remove([path]);
+            if (cleanupError) console.error('Photo upload cleanup failed.', { code: cleanupError.name || 'storage_cleanup_failed' });
+          }
+        } catch (cleanupError) { console.error('Photo upload cleanup failed.', { code: cleanupError instanceof Error ? cleanupError.name : 'storage_cleanup_failed' }); }
         return response({ error: 'Something went wrong while uploading your memory. Please try again.', ...(isDevelopment ? { diagnostic } : {}) }, 500);
       }
       return response({ ok: true });
