@@ -6,10 +6,10 @@ Supabase remains the source of truth for authentication and photo metadata. Exis
 
 Create two R2 buckets:
 
-- `R2_PUBLIC_BUCKET_NAME`: enable a Cloudflare custom domain for this bucket and set `VITE_R2_PUBLIC_BASE_URL` to that domain's base URL. Public gallery objects are stored under `weddings/{wedding_id}/public/{uuid}.{ext}`.
+- `R2_PUBLIC_BUCKET_NAME`: because this deployment has no custom domain, enable this bucket's Cloudflare-managed **Public Development URL** (`r2.dev`). The frontend uses the exact public base URL `https://pub-eb1ab26ee35f45ddaf2de0ceb3355bc2.r2.dev`, configured in `src/services/wedding.ts`, and appends public keys stored under `weddings/{wedding_id}/public/{uuid}.{ext}`.
 - `R2_BUCKET_NAME`: leave public development URL access disabled and do not attach a public custom domain. This bucket stores private objects under `weddings/{wedding_id}/private/{uuid}.{ext}`. Private images are delivered only through short-lived signed URLs after the admin Edge Function confirms the authenticated user's `admins` assignment and photo wedding ID.
 
-Do not point a public domain at the private bucket. R2 public bucket/custom-domain access exposes objects in that bucket; separate buckets keep public delivery from exposing private memories. Cloudflare supports serving a bucket through a custom domain and recommends custom domains for production delivery: [R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/).
+Enable public development URL access on `kofi-kamilia-public` only. It makes every object in that bucket publicly readable. Leave `kofi-kamilia-private` without a public development URL or custom domain; its objects remain delivered only through the authenticated Edge Function's short-lived signed URLs. Cloudflare describes `r2.dev` as a non-production/testing endpoint with rate limits; a custom domain is recommended for production traffic. See [R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/) and [R2 limits](https://developers.cloudflare.com/r2/platform/limits/).
 
 ## Supabase Edge Function secrets
 
@@ -25,9 +25,9 @@ R2_PUBLIC_BUCKET_NAME=...
 ADMIN_ALLOWED_ORIGINS=http://localhost:5173,https://your-production-wedding-domain.example
 ```
 
-Change `PHOTO_STORAGE_PROVIDER` to `r2` only after both buckets, the migration, secrets, function deployments, public custom domain, and CORS rules are ready. This switch applies only to future uploads; it does not move existing objects. The S3-compatible client uses Cloudflare's account endpoint and `auto` region as documented in [R2's S3 API guide](https://developers.cloudflare.com/r2/api/s3/) and [presigned URL guide](https://developers.cloudflare.com/r2/api/s3/presigned-urls/).
+Change `PHOTO_STORAGE_PROVIDER` to `r2` only after both buckets, the migration, secrets, function deployments, public delivery, and CORS rules are ready. This switch applies only to future uploads; it does not move existing objects. The S3-compatible client uses Cloudflare's account endpoint and `auto` region as documented in [R2's S3 API guide](https://developers.cloudflare.com/r2/api/s3/) and [presigned URL guide](https://developers.cloudflare.com/r2/api/s3/presigned-urls/).
 
-Set `VITE_R2_PUBLIC_BASE_URL` in the frontend build environment to the public bucket's custom-domain origin, for example `https://media.example.com`. This is a public delivery address, not a credential. Never create `VITE_R2_ACCESS_KEY_ID` or `VITE_R2_SECRET_ACCESS_KEY`.
+The public R2 base URL is a public address, not a credential, and is currently configured in frontend source so local and Netlify builds use the same value. The frontend appends the stored `storage_key` path segment by segment. Never create `VITE_R2_ACCESS_KEY_ID` or `VITE_R2_SECRET_ACCESS_KEY`.
 
 `ADMIN_ALLOWED_ORIGINS` is an exact comma-separated origin allowlist for the authenticated photo-storage Edge Function. Include local development and the deployed wedding site's origin, without path segments.
 
@@ -65,10 +65,10 @@ The private bucket remains private; CORS only permits browser reads when an auth
 
 ## Deploy sequence
 
-1. Create/configure both buckets, public custom domain, CORS, and the Edge Function secrets above. Keep `PHOTO_STORAGE_PROVIDER=supabase` initially.
+1. Create/configure both buckets, enable the public development URL on the public bucket only, configure CORS, and set the Edge Function secrets above. Keep `PHOTO_STORAGE_PROVIDER=supabase` initially.
 2. Review and apply `supabase/migrations/202610030006_photo_storage_providers.sql` through the normal database release process.
 3. Deploy `guest-submit` and `photo-storage-admin` Edge Functions.
-4. Set the frontend build variable `VITE_R2_PUBLIC_BASE_URL`, build/release the frontend, and verify both public and private R2 access with an authorized test wedding.
+4. Enable the public development URL on the public bucket only, build/release the frontend, and verify public delivery and authenticated private access with an authorized test wedding. `r2.dev` is rate-limited and intended for non-production traffic.
 5. Set `PHOTO_STORAGE_PROVIDER=r2` when ready for new uploads to use R2.
 
 Nothing in this repository deploys the migration or Edge Functions automatically.

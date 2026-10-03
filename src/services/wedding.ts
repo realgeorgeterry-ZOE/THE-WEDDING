@@ -89,7 +89,7 @@ export async function uploadPhotos(id: string, files: File[], name: string, capt
   }
 }
 export type PhotoLocation = { storage_path?: string; thumbnail_path?: string | null; storage_provider?: 'supabase' | 'r2'; storage_key?: string | null };
-const r2PublicBase = (import.meta.env.VITE_R2_PUBLIC_BASE_URL as string | undefined)?.replace(/\/+$/, '') || '';
+const r2PublicBase = 'https://pub-eb1ab26ee35f45ddaf2de0ceb3355bc2.r2.dev';
 
 export function photoUrl(photo: PhotoLocation | string, thumbnail = true) {
   if (typeof photo === 'string') return supabase.storage.from('wedding-media').getPublicUrl(photo,{transform:{width:1100,quality:78}}).data.publicUrl;
